@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 
 import discord
 from discord.ext import commands
@@ -17,35 +18,44 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN не найден в .env")
 
-intents = discord.Intents.default()
-# Нужно для события on_member_join:
-intents.members = True
+# Для мгновенного появления / команд указываем ID сервера
+GUILD_ID = int(os.getenv("GUILD_ID", "760839357954261022"))
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+intents = discord.Intents.default()
+intents.members = True  # нужно для on_member_join
+
+
+class LerkBot(commands.Bot):
+    async def setup_hook(self) -> None:
+        # Загружаем модули (cogs)
+        extensions = [
+            "cogs.welcome",
+            "cogs.help",
+        ]
+        for ext in extensions:
+            await self.load_extension(ext)
+            log.info("Loaded extension: %s", ext)
+
+        # Мгновенный sync команд только для конкретного сервера (guild)
+        guild = discord.Object(id=GUILD_ID)
+
+        # Если позже будут глобальные команды — можно оставить copy_global_to,
+        # но сейчас нам хватает прямого sync.
+        synced = await self.tree.sync(guild=guild)
+        log.info("Guild-synced %d app commands to guild %s", len(synced), GUILD_ID)
+
+
+bot = LerkBot(command_prefix="!", intents=intents)
 
 
 @bot.event
 async def on_ready():
     log.info("Logged in as %s (id=%s)", bot.user, bot.user.id)
-    # Синк слеш-команд (если потом добавишь) — можно будет включить.
-
-
-async def load_extensions():
-    # Здесь подключаем модули (cogs)
-    extensions = [
-        "cogs.welcome",
-    ]
-    for ext in extensions:
-        await bot.load_extension(ext)
-        log.info("Loaded extension: %s", ext)
 
 
 async def main():
-    async with bot:
-        await load_extensions()
-        await bot.start(TOKEN)
+    await bot.start(TOKEN)
 
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
