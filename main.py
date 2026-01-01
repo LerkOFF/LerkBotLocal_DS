@@ -22,15 +22,15 @@ if not TOKEN:
 GUILD_ID = int(os.getenv("GUILD_ID", "760839357954261022"))
 
 intents = discord.Intents.default()
-intents.members = True  # нужно для on_member_join
+intents.members = True  # нужно для on_member_join и некоторых guild-объектов
 
 
 class LerkBot(commands.Bot):
     async def setup_hook(self) -> None:
-        # Загружаем модули (cogs)
         extensions = [
             "cogs.welcome",
             "cogs.help",
+            "cogs.voice_channels",  # 👈 новый модуль
         ]
         for ext in extensions:
             await self.load_extension(ext)
@@ -38,9 +38,6 @@ class LerkBot(commands.Bot):
 
         # Мгновенный sync команд только для конкретного сервера (guild)
         guild = discord.Object(id=GUILD_ID)
-
-        # Если позже будут глобальные команды — можно оставить copy_global_to,
-        # но сейчас нам хватает прямого sync.
         synced = await self.tree.sync(guild=guild)
         log.info("Guild-synced %d app commands to guild %s", len(synced), GUILD_ID)
 
