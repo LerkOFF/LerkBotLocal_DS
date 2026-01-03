@@ -3,7 +3,7 @@ import discord
 from discord.ext import commands
 
 
-def _get_int_env(name: str, default: int) -> int:
+def _get_int_env(name: str, default: int = 0) -> int:
     raw = os.getenv(name)
     if raw is None:
         return default
@@ -11,6 +11,28 @@ def _get_int_env(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _get_int_set_from_env(name: str) -> set[int]:
+    """
+    Читает из .env список ID через запятую:
+    WELCOME_GUILD_IDS=1,2,3
+    """
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return set()
+
+    out: set[int] = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.add(int(part))
+        except ValueError:
+            # игнорируем мусорные значения
+            continue
+    return out
 
 
 def _get_color_from_env() -> discord.Color:
@@ -25,28 +47,30 @@ def _get_color_from_env() -> discord.Color:
 class WelcomeCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
         self.channel_id = _get_int_env("WELCOME_CHANNEL_ID", 0)
         self.image_url = os.getenv("WELCOME_IMAGE_URL", "").strip()
         self.color = _get_color_from_env()
 
+        # ✅ Список серверов, где приветствие разрешено
+        self.allowed_guild_ids = _get_int_set_from_env("WELCOME_GUILD_IDS")
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
+        # ✅ Если список задан — приветствуем только на этих серверах
+        if self.allowed_guild_ids and member.guild.id not in self.allowed_guild_ids:
+            return
+
         if not self.channel_id:
             return
 
         channel = member.guild.get_channel(self.channel_id)
         if channel is None:
-            # Если канал не закеширован (редко) — попробуем fetch
             try:
                 channel = await self.bot.fetch_channel(self.channel_id)
-            except discord.NotFound:
-                return
-            except discord.Forbidden:
-                return
-            except discord.HTTPException:
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 return
 
-        # Твой текст: "Добро пожаловать на {guild}!"
         description = f"Добро пожаловать на **{member.guild.name}**!"
 
         embed = discord.Embed(
@@ -55,26 +79,18 @@ class WelcomeCog(commands.Cog):
             color=self.color,
         )
 
-        # Доп. детали (по желанию)
         embed.add_field(name="Новый участник", value=member.mention, inline=True)
         embed.set_footer(text=f"ID: {member.id}")
 
-        # Аватар пользователя (красиво смотрится)
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
 
-        # Картинка снизу
         if self.image_url:
             embed.set_image(url=self.image_url)
 
-        # Можно пингать пользователя или нет — сейчас не пингуем сообщением отдельно,
-        # но упоминание есть в embed поле.
         try:
             await channel.send(embed=embed)
-        except discord.Forbidden:
-            # Нет прав писать в канал
-            return
-        except discord.HTTPException:
+        except (discord.Forbidden, discord.HTTPException):
             return
 
 
